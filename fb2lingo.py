@@ -1,5 +1,6 @@
 import os
 import argparse
+import uuid
 from openai import OpenAI
 from lxml import etree
 from copy import deepcopy
@@ -59,7 +60,15 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
 
     raise RuntimeError("Batch translation failed after 3 attempts.")
 
-def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size=5):
+def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, dump_path):
+    translated_count = 0
+    if os.path.exists(dump_path):
+        with open(dump_path, 'r', encoding='utf-8') as dump_file:
+            translated_count = sum(1 for line in dump_file if line.strip() == '---TRANSLATION---')
+        print(f"Resuming from paragraph #{translated_count + 1} using dump file: {dump_path}")
+    else:
+        print(f"Starting fresh. Dump file will be written to: {dump_path}")
+
     parser = etree.XMLParser(remove_blank_text=True)
     tree = etree.parse(input_path, parser)
     root = tree.getroot()
@@ -82,6 +91,13 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
 
         if len(buffer) == batch_size:
             translations = batch_translate(buffer, model, src_lang, tgt_lang)
+            with open(dump_path, 'a', encoding='utf-8') as dump_file:
+                for orig, trans in zip(buffer, translations):
+                    dump_file.write('---ORIGINAL---\n')
+                    dump_file.write(orig + '\n')
+                    dump_file.write('---TRANSLATION---\n')
+                    dump_file.write(trans + '\n')
+
             for orig_p, trans_text in zip(buffer_elements, translations):
                 new_p = deepcopy(orig_p)
                 new_p.clear()
@@ -109,9 +125,19 @@ def main():
     parser.add_argument("--source", default="Russian", help="Source language (default: Russian)")
     parser.add_argument("--target", default="Greek", help="Target language (default: Greek)")
     parser.add_argument("--batch", type=int, default=5, help="Batch size (default: 5)")
+    parser.add_argument("--dump", help="Path to dump file (for resuming)")
+    parser.add_argument("--keep-dump", action="store_true", help="Keep the dump file after successful translation")
 
     args = parser.parse_args()
-    process_fb2_to_bilingual(args.input_file, args.output_file, args.model, args.source, args.target, args.batch)
+    if args.dump:
+        dump_path = args.dump
+    else:
+        dump_path = f".fb2lingo_dump_{uuid.uuid4().hex}.txt"
+    process_fb2_to_bilingual(args.input_file, args.output_file, args.model, args.source, args.target, args.batch, dump_path)
+    if keep_dump:
+        print(f"Dump file retained at: {dump_path}")
+    else:
+        os.remove(dump_path)
 
 if __name__ == "__main__":
     main()
