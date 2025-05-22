@@ -1,15 +1,17 @@
 import os
+import time
 import argparse
-import uuid
-from openai import OpenAI
-from lxml import etree
 from copy import deepcopy
 from tqdm import tqdm
-import time
+from lxml import etree
+from openai import OpenAI
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 client = OpenAI()
 
-log = open("last.log", "w")
+def get_text(element):
+    return ''.join(element.itertext()).strip()
 
 def batch_translate(paragraphs, model, source_lang, target_lang):
     prompt = (
@@ -20,7 +22,7 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
     for i, p in enumerate(paragraphs, 1):
         prompt += f"{i}. {p}\n"
 
-    for _ in range(3):  # Retry up to 3 times
+    for attempt in range(3):
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -28,7 +30,6 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
                 temperature=0.7,
             )
             content = response.choices[0].message.content.strip()
-            # Split using numbered format
             lines = content.split('\n')
             translations = []
             current = ''
@@ -43,32 +44,15 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
                 translations.append(current.strip())
 
             if len(translations) != len(paragraphs):
-                log.write("== Prompt ==\n")
-                log.write(prompt)
-                log.write("\n")
-                log.write("\n")
-                log.write("== Response ==\n")
-                log.write(content)
-                log.write("\n")
-                log.write("\n")
-                log.write("\n")
-                #raise ValueError("Mismatch between source and translated paragraph count.")
+                raise ValueError("Mismatch between source and translated paragraph count.")
             return translations
         except Exception as e:
-            print("Retrying batch due to error:", e)
-            time.sleep(5)
+            print(f"Retrying batch due to error: {e}")
+            time.sleep(5 * (attempt + 1))
 
     raise RuntimeError("Batch translation failed after 3 attempts.")
 
-def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, dump_path):
-    translated_count = 0
-    if os.path.exists(dump_path):
-        with open(dump_path, 'r', encoding='utf-8') as dump_file:
-            translated_count = sum(1 for line in dump_file if line.strip() == '---TRANSLATION---')
-        print(f"Resuming from paragraph #{translated_count + 1} using dump file: {dump_path}")
-    else:
-        print(f"Starting fresh. Dump file will be written to: {dump_path}")
-
+def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, threads):
     parser = etree.XMLParser(remove_blank_text=True)
     tree = etree.parse(input_path, parser)
     root = tree.getroot()
@@ -78,42 +62,30 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
         nsmap['fb2'] = nsmap.pop(None)
 
     paragraphs = root.xpath('//fb2:body//fb2:p', namespaces=nsmap)
+    paragraph_batches = [paragraphs[i:i+batch_size] for i in range(0, len(paragraphs), batch_size)]
 
-    buffer = []
-    buffer_elements = []
+    def translate_batch(batch):
+        texts = [get_text(p) for p in batch]
+        return batch_translate(texts, model, src_lang, tgt_lang)
 
-    for p in tqdm(paragraphs, desc="Translating paragraphs"):
-        full_text = ''.join(p.itertext()).strip()
-        if not full_text:
-            continue
-        buffer.append(full_text)
-        buffer_elements.append(p)
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        future_to_batch = {
+            executor.submit(translate_batch, batch): batch
+            for batch in paragraph_batches
+        }
 
-        if len(buffer) == batch_size:
-            translations = batch_translate(buffer, model, src_lang, tgt_lang)
-            with open(dump_path, 'a', encoding='utf-8') as dump_file:
-                for orig, trans in zip(buffer, translations):
-                    dump_file.write('---ORIGINAL---\n')
-                    dump_file.write(orig + '\n')
-                    dump_file.write('---TRANSLATION---\n')
-                    dump_file.write(trans + '\n')
+        for future in tqdm(as_completed(future_to_batch), total=len(future_to_batch), desc="Translating"):
+            batch = future_to_batch[future]
+            try:
+                translations = future.result()
+                for orig_p, trans_text in zip(batch, translations):
+                    new_p = deepcopy(orig_p)
+                    new_p.clear()
+                    new_p.text = trans_text
+                    orig_p.addnext(new_p)
 
-            for orig_p, trans_text in zip(buffer_elements, translations):
-                new_p = deepcopy(orig_p)
-                new_p.clear()
-                new_p.text = trans_text
-                orig_p.addnext(new_p)
-            buffer.clear()
-            buffer_elements.clear()
-
-    # Handle any remaining paragraphs
-    if buffer:
-        translations = batch_translate(buffer, model, src_lang, tgt_lang)
-        for orig_p, trans_text in zip(buffer_elements, translations):
-            new_p = deepcopy(orig_p)
-            new_p.clear()
-            new_p.text = trans_text
-            orig_p.addnext(new_p)
+            except Exception as e:
+                print(f"Failed to process a batch: {e}")
 
     tree.write(output_path, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
@@ -124,20 +96,22 @@ def main():
     parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model (default: gpt-4o-mini)")
     parser.add_argument("--source", default="Russian", help="Source language (default: Russian)")
     parser.add_argument("--target", default="Greek", help="Target language (default: Greek)")
-    parser.add_argument("--batch", type=int, default=5, help="Batch size (default: 5)")
-    parser.add_argument("--dump", help="Path to dump file (for resuming)")
-    parser.add_argument("--keep-dump", action="store_true", help="Keep the dump file after successful translation")
+    parser.add_argument("--batch", type=int, default=100, help="Batch size (default: 100)")
+    parser.add_argument("--threads", type=int, default=3, help="Number of threads for parallel translation (default: 3)")
 
     args = parser.parse_args()
-    if args.dump:
-        dump_path = args.dump
-    else:
-        dump_path = f".fb2lingo_dump_{uuid.uuid4().hex}.txt"
-    process_fb2_to_bilingual(args.input_file, args.output_file, args.model, args.source, args.target, args.batch, dump_path)
-    if keep_dump:
-        print(f"Dump file retained at: {dump_path}")
-    else:
-        os.remove(dump_path)
+
+    process_fb2_to_bilingual(
+        args.input_file,
+        args.output_file,
+        args.model,
+        args.source,
+        args.target,
+        args.batch,
+        args.threads
+    )
+
+    print(f"Translation complete. Output saved to: {args.output_file}")
 
 if __name__ == "__main__":
     main()
