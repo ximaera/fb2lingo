@@ -52,7 +52,7 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
 
     raise RuntimeError("Batch translation failed after 3 attempts.")
 
-def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, threads):
+def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, threads, original_first):
     parser = etree.XMLParser(remove_blank_text=True)
     tree = etree.parse(input_path, parser)
     root = tree.getroot()
@@ -79,10 +79,16 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
             try:
                 translations = future.result()
                 for orig_p, trans_text in zip(batch, translations):
-                    new_p = deepcopy(orig_p)
-                    new_p.clear()
-                    new_p.text = trans_text
-                    orig_p.addnext(new_p)
+                    trans_p = deepcopy(orig_p)
+                    trans_p.clear()
+                    trans_p.text = trans_text
+                    parent = orig_p.getparent()
+                    if original_first:
+                        parent.replace(orig_p, orig_p)
+                        orig_p.addnext(trans_p)
+                    else:
+                        parent.replace(orig_p, trans_p)
+                        trans_p.addnext(orig_p)
 
             except Exception as e:
                 print(f"Failed to process a batch: {e}")
@@ -90,6 +96,7 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
     tree.write(output_path, encoding='utf-8', xml_declaration=True, pretty_print=True)
 
 def main():
+    # Argument parser setup
     parser = argparse.ArgumentParser(description="Create bilingual FB2 files using GPT.")
     parser.add_argument("input_file", help="Path to the input FB2 file.")
     parser.add_argument("output_file", help="Path to save the bilingual FB2 output.")
@@ -98,6 +105,7 @@ def main():
     parser.add_argument("--target", default="Greek", help="Target language (default: Greek)")
     parser.add_argument("--batch", type=int, default=100, help="Batch size (default: 100)")
     parser.add_argument("--threads", type=int, default=3, help="Number of threads for parallel translation (default: 3)")
+    parser.add_argument("--original-first", action="store_true", help="Put original paragraph before the translation")
 
     args = parser.parse_args()
 
@@ -108,7 +116,8 @@ def main():
         args.source,
         args.target,
         args.batch,
-        args.threads
+        args.threads,
+        args.original_first
     )
 
     print(f"Translation complete. Output saved to: {args.output_file}")
