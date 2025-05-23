@@ -54,7 +54,7 @@ python3 fb2lingo.py input.fb2 output.fb2
 
 ---
 
-## 📦 Example
+## 📦 Examples
 
 ```
 python3 fb2lingo.py heinlein_got_spacesuit_will_travel.fb2 heinlein_bilingual.fb2 \
@@ -63,6 +63,13 @@ python3 fb2lingo.py heinlein_got_spacesuit_will_travel.fb2 heinlein_bilingual.fb
   --threads 4 \
   --batch 50 \
   --original-first
+```
+
+```
+python3 fb2lingo.py heinlein_got_spacesuit_will_travel.fb2 heinlein_bilingual.fb2 \
+  --source Greek \
+  --target "English, proficiency level A2" \
+  --batch 50
 ```
 
 ## 💡 Use Case
