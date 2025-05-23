@@ -8,6 +8,9 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+MAX_ATTEMPTS=3 # Doesn't look like a useful command line argument —
+               # if a book (or API) is broken, it's broken
+
 client = OpenAI()
 
 def get_text(element):
@@ -22,7 +25,7 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
     for i, p in enumerate(paragraphs, 1):
         prompt += f"{i}. {p}\n"
 
-    for attempt in range(3):
+    for attempt in range(MAX_ATTEMPTS):
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -44,8 +47,17 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
                 translations.append(current.strip())
 
             if len(translations) != len(paragraphs):
-                raise ValueError("Mismatch between source and translated paragraph count.")
+                if attempt < MAX_ATTEMPTS - 1:
+                    raise ValueError("Mismatch between source and translated paragraph count.")
+                print("Warning: Translated paragraph count does not match original.")
+                if len(translations) < len(paragraphs):
+                    # else: zip() later will take care of it
+                    translations.insert(0, "[TRANSLATION WARNING: Paragraph count mismatch detected]")
+                    while len(translations) < len(paragraphs):
+                        translations.append("")
+
             return translations
+
         except Exception as e:
             print(f"Retrying batch due to error: {e}")
             time.sleep(5 * (attempt + 1))

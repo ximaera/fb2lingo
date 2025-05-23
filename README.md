@@ -75,6 +75,7 @@ python3 fb2lingo.py heinlein_got_spacesuit_will_travel.fb2 heinlein_bilingual.fb
 
 ## ⚠️ Disclaimer
 
+- LLM (AI) tools do not work in a deterministic manner, sometimes parts of the book may be translated in a wrong way, some paragraphs might be omitted, etc. This script is sort of trying to handle this but doesn't go very far in this.
 - This tool modifies the FB2 structure by inserting new paragraphs.
 - Large books may require significant API tokens and time.
 - Make sure to comply with OpenAI’s usage policies.
