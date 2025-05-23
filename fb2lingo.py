@@ -8,8 +8,9 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
-MAX_ATTEMPTS=3 # Doesn't look like a useful command line argument —
-               # if a book (or API) is broken, it's broken
+MAX_ATTEMPTS = 3 # Doesn't look like a useful command line argument —
+                 # if a book (or API) is broken, it's broken
+INDEX_START = 1
 
 client = OpenAI()
 
@@ -22,7 +23,7 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
         f"Please only output the translated paragraphs. No explanations, comments, only the translated text. "
         f"Return the translations as numbered paragraphs (1., 2., etc.):\n\n"
     )
-    for i, p in enumerate(paragraphs, 1):
+    for i, p in enumerate(paragraphs, INDEX_START):
         prompt += f"{i}. {p}\n"
 
     for attempt in range(MAX_ATTEMPTS):
@@ -36,11 +37,13 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
             lines = content.split('\n')
             translations = []
             current = ''
+            index = INDEX_START
             for line in lines:
-                if line.strip().startswith(tuple(f"{i}." for i in range(1, len(paragraphs)+1))):
+                if line.strip().startswith(f"{index}."):
                     if current:
                         translations.append(current.strip())
                     current = line.partition('.')[2].strip()
+                    index += 1
                 else:
                     current += ' ' + line.strip()
             if current:
@@ -49,12 +52,16 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
             if len(translations) != len(paragraphs):
                 if attempt < MAX_ATTEMPTS - 1:
                     raise ValueError("Mismatch between source and translated paragraph count.")
+
                 print("Warning: Translated paragraph count does not match original.")
                 if len(translations) < len(paragraphs):
-                    # else: zip() later will take care of it
-                    translations.insert(0, "[TRANSLATION WARNING: Paragraph count mismatch detected]")
+                    # We add warning to the **end** of the list of translations,
+                    # rather than the beginning, in order to try to only interfere
+                    # with the source-to-translation match as little as possible
+                    translations.append("[TRANSLATION WARNING: Paragraph count mismatch detected]")
                     while len(translations) < len(paragraphs):
                         translations.append("")
+                # else: zip() later will take care of it
 
             return translations
 
