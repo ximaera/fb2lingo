@@ -8,17 +8,17 @@
 
 - 🔁 Translates FB2 books **paragraph by paragraph**
 - 🌍 Supports **any language pair** (default: Russian ➡ Greek)
-- ⚡ Fast translation with **parallel batch processing**
+- ⚡ Faster translation with **parallel batch processing**
 - 📄 Outputs a valid FB2 file with **interleaved paragraphs**
 - 🔁 Customizable paragraph order (translation first or original first)
-- 🧠 Powered by **OpenAI GPT models** (default: `gpt-4o-mini`)
+- 🧠 Powered by **OpenAI GPT models** (default: `gpt-4o-mini`, costs around $0.2-$0.5 to translate an entire book)
 
 ---
 
 ## 🛠 Installation
 
 ```bash
-git clone https://github.com/yourusername/fb2lingo.git
+git clone https://github.com/ximaera/fb2lingo.git
 cd fb2lingo
 pip install -r requirements.txt
 ```
