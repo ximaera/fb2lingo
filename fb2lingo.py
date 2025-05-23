@@ -1,12 +1,12 @@
 import os
 import time
 import argparse
+import threading
 from copy import deepcopy
 from tqdm import tqdm
 from lxml import etree
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 
 MAX_ATTEMPTS = 3 # Doesn't look like a useful command line argument —
                  # if a book (or API) is broken, it's broken
@@ -71,7 +71,46 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
 
     raise RuntimeError("Batch translation failed after 3 attempts.")
 
-def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, threads, original_first):
+global_index = INDEX_START
+index_lock = threading.Lock()
+
+def apply_translations_to_tree(root, batch, translations, original_first, notes_section):
+    with index_lock:
+        global global_index
+        start_index = global_index
+        global_index += len(batch)
+
+    for offset, (orig_p, trans_text) in enumerate(zip(batch, translations)):
+        i = start_index + offset
+
+        trans_p = deepcopy(orig_p)
+        trans_p.clear()
+        trans_p.text = trans_text
+        parent = orig_p.getparent()
+
+        if notes_section is not None:
+            note_id = f"fb2lng_{i}"
+            note_ref = etree.Element("a", attrib={"type": "note", "{http://www.w3.org/1999/xlink}href": f"#{note_id}"})
+            note_ref.text = f"[{i}]"
+            trans_p.append(note_ref)
+
+            section = etree.SubElement(notes_section, "section", id=note_id)
+            title = etree.SubElement(section, "title")
+            title_p = etree.SubElement(title, "p")
+            title_p.text = str(i)
+            note_p = etree.SubElement(section, "p")
+            note_p.text = get_text(orig_p)
+
+            parent.replace(orig_p, trans_p)
+
+        elif original_first:
+            orig_p.addnext(trans_p)
+
+        else:
+            parent.replace(orig_p, trans_p)
+            trans_p.addnext(orig_p)
+
+def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang, batch_size, threads, original_first, footnotes):
     parser = etree.XMLParser(remove_blank_text=True)
     tree = etree.parse(input_path, parser)
     root = tree.getroot()
@@ -82,6 +121,13 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
 
     paragraphs = root.xpath('//fb2:body//fb2:p', namespaces=nsmap)
     paragraph_batches = [paragraphs[i:i+batch_size] for i in range(0, len(paragraphs), batch_size)]
+
+    notes_section = None
+    if footnotes:
+        notes_section = root.find(".//body[@name='notes']")
+        if notes_section is None:
+            notes_section = etree.SubElement(root, "body")
+            notes_section.attrib['name'] = 'notes'
 
     def translate_batch(batch):
         texts = [get_text(p) for p in batch]
@@ -97,18 +143,7 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
             batch = future_to_batch[future]
             try:
                 translations = future.result()
-                for orig_p, trans_text in zip(batch, translations):
-                    trans_p = deepcopy(orig_p)
-                    trans_p.clear()
-                    trans_p.text = trans_text
-                    parent = orig_p.getparent()
-                    if original_first:
-                        parent.replace(orig_p, orig_p)
-                        orig_p.addnext(trans_p)
-                    else:
-                        parent.replace(orig_p, trans_p)
-                        trans_p.addnext(orig_p)
-
+                apply_translations_to_tree(root, batch, translations, original_first, notes_section)
             except Exception as e:
                 print(f"Failed to process a batch: {e}")
 
@@ -125,6 +160,7 @@ def main():
     parser.add_argument("--batch", type=int, default=100, help="Batch size (default: 100)")
     parser.add_argument("--threads", type=int, default=3, help="Number of threads for parallel translation (default: 3)")
     parser.add_argument("--original-first", action="store_true", help="Put original paragraph before the translation")
+    parser.add_argument("--footnotes", action="store_true", help="Insert original paragraphs as footnotes")
 
     args = parser.parse_args()
 
@@ -136,7 +172,8 @@ def main():
         args.target,
         args.batch,
         args.threads,
-        args.original_first
+        args.original_first,
+        args.footnotes
     )
 
     print(f"Translation complete. Output saved to: {args.output_file}")

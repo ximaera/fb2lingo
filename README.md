@@ -51,6 +51,7 @@ python3 fb2lingo.py input.fb2 output.fb2
 | `--batch`          | Number of paragraphs per API request               | `100`            |
 | `--threads`        | Number of threads for parallel batches             | `3`              |
 | `--original-first` | Put the original paragraph **before** translation  | _disabled_       |
+| `--footnotes`      | Put the original paragraph into footnotes          | _disabled_       |
 
 ---
 
