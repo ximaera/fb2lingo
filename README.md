@@ -66,7 +66,7 @@ python3 fb2lingo.py heinlein_got_spacesuit_will_travel.fb2 heinlein_bilingual.fb
 ```
 
 ```
-python3 fb2lingo.py heinlein_got_spacesuit_will_travel.fb2 heinlein_bilingual.fb2 \
+python3 fb2lingo.py homer_odyssey.fb2 homer_bilingual.fb2 \
   --source Greek \
   --target "English, proficiency level A2" \
   --batch 50
