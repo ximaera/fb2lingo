@@ -1,6 +1,6 @@
 # 📚 FB2Lingo — Bilingual FB2 Book Translator
 
-**FB2Lingo** is a command-line tool that translates FB2 (FictionBook 2.0) ebooks into a bilingual format using the OpenAI API. It helps language learners by interleaving each paragraph with its translation — ideal for immersive reading and vocabulary building.
+**FB2Lingo** is a command-line tool that translates FB2 (FictionBook 2.0) ebooks into a bilingual format using AI API. It helps language learners by interleaving each paragraph with its translation — ideal for immersive reading and vocabulary building.
 
 ---
 
@@ -27,11 +27,21 @@ pip install -r requirements.txt
 
 ## 🔐 Prerequisites
 
-Make sure your OpenAI API key is available as an environment variable:
+`fb2lingo` supports OpenAI API and Azure OpenAI API (courtesy [@alukovenko](https://www.github.com/alukovenko))
+
+When using OpenAI API, make sure your OpenAI API key is available as an environment variable:
 
 ```bash
 export OPENAI_API_KEY=your-api-key-here
 ```
+
+When using Azure OpenAI API, Azure deployment name should be available in the environment, instead:
+
+```bash
+export AZURE_DEPLOYMENT_NAME=deployment-name
+```
+
+If both variables are present, Azure OpenAI API would be given preference.
 
 ---
 
