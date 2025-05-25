@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import time
 import argparse
@@ -5,14 +7,24 @@ import threading
 from copy import deepcopy
 from tqdm import tqdm
 from lxml import etree
-from openai import OpenAI
+from dotenv import load_dotenv
+from openai import OpenAI, AzureOpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 MAX_ATTEMPTS = 3 # Doesn't look like a useful command line argument —
                  # if a book (or API) is broken, it's broken
 INDEX_START = 1
 
-client = OpenAI()
+load_dotenv(override=True)
+default_model = os.getenv("AZURE_DEPLOYMENT_NAME", "gpt-4o-mini")
+if 'AZURE_DEPLOYMENT_NAME' in os.environ:
+    # .env contains the following variables:
+    # AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, OPENAI_API_VERSION, AZURE_DEPLOYMENT_NAME
+    client = AzureOpenAI()
+else:
+    # .env contains the following variables:
+    # OPENAI_API_KEY (required), OPENAI_API_BASE, OPENAI_API_VERSION
+    client = OpenAI()
 
 def get_text(element):
     return ''.join(element.itertext()).strip()
@@ -51,7 +63,9 @@ def batch_translate(paragraphs, model, source_lang, target_lang):
 
             if len(translations) != len(paragraphs):
                 if attempt < MAX_ATTEMPTS - 1:
-                    raise ValueError("Mismatch between source and translated paragraph count.")
+                    print(translations)
+                    print(paragraphs)
+                    raise ValueError(f"Mismatch between source ({len(paragraphs)}) and translated ({len(translations)}) paragraph count.")
 
                 print("Warning: Translated paragraph count does not match original.")
                 if len(translations) < len(paragraphs):
@@ -120,6 +134,8 @@ def process_fb2_to_bilingual(input_path, output_path, model, src_lang, tgt_lang,
         nsmap['fb2'] = nsmap.pop(None)
 
     paragraphs = root.xpath('//fb2:body//fb2:p', namespaces=nsmap)
+    # exclude empty paragraphs, as this can create mismatches in paragraph count during translation
+    paragraphs = [p for p in paragraphs if get_text(p).strip() != '']
     paragraph_batches = [paragraphs[i:i+batch_size] for i in range(0, len(paragraphs), batch_size)]
 
     notes_section = None
@@ -154,7 +170,7 @@ def main():
     parser = argparse.ArgumentParser(description="Create bilingual FB2 files using GPT.")
     parser.add_argument("input_file", help="Path to the input FB2 file.")
     parser.add_argument("output_file", help="Path to save the bilingual FB2 output.")
-    parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model (default: gpt-4o-mini)")
+    parser.add_argument("--model", default=default_model, help=f"OpenAI model or Azure Deployment name if using Azure (default: {default_model})")
     parser.add_argument("--source", default="Russian", help="Source language (default: Russian)")
     parser.add_argument("--target", default="Greek", help="Target language (default: Greek)")
     parser.add_argument("--batch", type=int, default=100, help="Batch size (default: 100)")
